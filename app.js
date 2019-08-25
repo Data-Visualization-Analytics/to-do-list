@@ -2,42 +2,147 @@
 
 const express = require("express");
 const bodyParser = require("body-parser");
+const mongoose = require("mongoose");
+const _ = require("lodash");
 
 const app = express();
 app.set('view engine', 'ejs');
 app.use(bodyParser.urlencoded({extended: true}));
 app.use(express.static("public"));
-let items = ["Buy Food", "Cook Food", "Eat Food"];
-let workItems = [];
+
+
+mongoose.connect("mongodb://localhost:27017/todolistDB", { useNewUrlParser: true });
+
+const itemSchema = {
+  name: String
+};
+
+const Item = mongoose.model("Item",itemSchema);
+const item1 = new Item({
+  name: "Welcome to Todolist!"
+});
+
+const item2 = new Item({
+  name: "Hit + button to add a new item."
+});
+
+const item3 = new Item({
+  name: "<-- Hit this to delete an item."
+});
+
+const defaultItems = [item1,item2,item3];
 
 app.get("/", (req, res) => {
-  let today = new Date();
-
-  let options = {
-    weekday: "long",
-    day: "numeric",
-    month: "long"
-  };
-  let day = today.toLocaleDateString("en-US", options);
-  res.render("list", {listTitle: day, newListItems: items});
+  Item.find(function(err,items){
+    if(err){
+      console.log(err);
+    }
+    else{
+      if(items.length === 0){
+        Item.insertMany(defaultItems,function(err){
+          if(err){
+            console.log(err);
+          }
+          else{
+            console.log("Items added successfully!");
+          }
+        });
+        res.redirect("/");
+      }
+      else{
+        res.render("list", {listTitle: "Today", newListItems: items});
+      }
+    }
+  });
+  // let today = new Date();
+  //
+  // let options = {
+  //   weekday: "long",
+  //   day: "numeric",
+  //   month: "long"
+  // };
+  //
+  // day = today.toLocaleDateString("en-US", options);
 });
 
-app.get("/work", (req, res) => {
-  res.render("list", {listTitle: "Work List", newListItems: workItems});
-});
 
 app.post("/", (req, res) => {
-  let item = req.body.newItem;
-  if(req.body.list === "Work"){
-    workItems.push(item);
-    res.redirect("/work");
-  }
-  else {
-    items.push(item);
+  let itemName = req.body.newItem;
+  let listName = req.body.list;
+
+  const item = new Item({
+    name: itemName
+  });
+
+  if(listName === "Today"){
+    item.save();
     res.redirect("/");
+  }
+  else{
+    List.findOne({name: listName},(err, listResult)=>{
+      if(err){
+        console.log(err);
+      }
+      else{
+        listResult.items.push(item);
+        listResult.save();
+        res.redirect("/" + listName);
+      }
+    });
+  }
+});
+
+app.post("/delete", (req, res) => {
+  const checkedItemId = req.body.checkbox;
+  let listName = req.body.listName;
+console.log(listName);
+  if(listName === "Today"){
+    Item.deleteOne({_id: checkedItemId},(err)=>{
+      if(err){
+        console.log(err);
+      }
+      else{
+        console.log("Item deleted successfully!");
+      }
+      res.redirect("/");
+    });
+  }else{
+    List.findOneAndUpdate({name: listName},{$pull: {items: {_id: checkedItemId}}},(err,foundList)=>{
+      if(!err){
+        res.redirect("/"+listName);
+      }
+    })
   }
 
 });
+
+app.get("/:customListName", (req, res) => {
+  const customListName = _.capitalize(req.params.customListName);
+
+  List.findOne({name: customListName},(err,listResult)=>{
+    if(err){
+      console.log(err);
+    }
+    else if(!listResult){
+      const list = new List({
+        name: customListName,
+        items: defaultItems
+      });
+      list.save();
+      res.redirect("/"+customListName);
+    }
+    else{
+      res.render("list", {listTitle: listResult.name, newListItems: listResult.items});
+    }
+  });
+});
+
+const listSchema = ({
+  name: String,
+  items: [itemSchema]
+});
+
+const List = mongoose.model("List",listSchema);
 
 app.listen(process.env.PORT || 3000, (req, res) => {
   console.log("Server is running on port 3000");
